@@ -1,0 +1,9 @@
+# 共通
+numpy>=1.26
+
+# リアルタイムノード (frog_node.py) を Mac で動かす場合
+sounddevice>=0.4
+
+# CNN 学習 (train_cnn.py) を行う場合
+# tensorflow>=2.15
+# soundfile>=0.12

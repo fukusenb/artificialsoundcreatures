@@ -34,9 +34,10 @@ const state = {
   params: {
     K: 0.4, T: 1.0, spread: 0.05, gate: 0.15, latency: 0.1,
     refDist: 120, noiseMask: 0.8, speed: 1.0,
-    mode: "prc", latComp: true, showLinks: true, sound: false,
+    mode: "prc", latComp: true, showLinks: true, sound: false, callVol: 0.9,
   },
   audio: null,
+  customBuffer: null,
 };
 
 let field, fctx, raster, rctx;
@@ -304,27 +305,62 @@ function updateMetric() {
   el.style.color = `rgb(${Math.round(255 * (1 - s))},${Math.round(200 * s)},90)`;
 }
 
-// ---- WebAudio(カエルっぽい鳴き) -----------------------------------
+// ---- WebAudio -------------------------------------------------------
+function ensureAudio() {
+  if (!state.audio) {
+    try { state.audio = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (e) { return null; }
+  }
+  if (state.audio.state === "suspended") state.audio.resume();
+  return state.audio;
+}
+
+// 任意の音源ファイルを読み込んで各個体の鳴き声にする
+function loadAudioFile(file) {
+  const ac = ensureAudio();
+  const nameEl = document.getElementById("audioName");
+  if (!ac || !file) return;
+  if (nameEl) nameEl.textContent = "読み込み中…";
+  file.arrayBuffer()
+    .then((buf) => ac.decodeAudioData(buf))
+    .then((decoded) => {
+      state.customBuffer = decoded;
+      if (nameEl) nameEl.textContent = file.name;
+    })
+    .catch((e) => { if (nameEl) nameEl.textContent = "読み込み失敗"; console.error(e); });
+}
+
 function playCall(x) {
-  try {
-    const ac = state.audio || (state.audio = new (window.AudioContext || window.webkitAudioContext)());
-    const now = ac.currentTime;
+  const ac = ensureAudio();
+  if (!ac) return;
+  const now = ac.currentTime;
+  const gain = ac.createGain();
+  const pan = ac.createStereoPanner ? ac.createStereoPanner() : null;
+  const dest = pan || ac.destination;
+  if (pan) { pan.pan.value = Math.max(-1, Math.min(1, (x / FIELD_W) * 2 - 1)); pan.connect(ac.destination); }
+
+  if (state.customBuffer) {
+    // 読み込んだ音源を再生(個体差として再生速度を少し散らす)
+    const src = ac.createBufferSource();
+    src.buffer = state.customBuffer;
+    src.playbackRate.value = 0.97 + 0.06 * Math.random();
+    gain.gain.value = state.params.callVol;
+    src.connect(gain); gain.connect(dest);
+    src.start(now);
+  } else {
+    // 合成音(2-4kHz のパルス列)
     const osc = ac.createOscillator();
     const am = ac.createOscillator();
     const amGain = ac.createGain();
-    const gain = ac.createGain();
-    const pan = ac.createStereoPanner ? ac.createStereoPanner() : null;
     osc.frequency.value = 2600 + 400 * Math.random();
     am.frequency.value = 45; amGain.gain.value = 0.5;
     am.connect(amGain); amGain.connect(gain.gain);
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.25, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.25 * state.params.callVol, now + 0.01);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
-    osc.connect(gain);
-    if (pan) { pan.pan.value = Math.max(-1, Math.min(1, (x / FIELD_W) * 2 - 1)); gain.connect(pan); pan.connect(ac.destination); }
-    else gain.connect(ac.destination);
+    osc.connect(gain); gain.connect(dest);
     osc.start(now); am.start(now); osc.stop(now + 0.24); am.stop(now + 0.24);
-  } catch (e) { /* ignore */ }
+  }
 }
 
 // ---- 入力(ドラッグ&ドロップ) --------------------------------------
@@ -390,9 +426,15 @@ function setupControls() {
   });
   document.getElementById("sound").addEventListener("change", (e) => {
     state.params.sound = e.target.checked;
-    if (e.target.checked && !state.audio) {
-      state.audio = new (window.AudioContext || window.webkitAudioContext)();
-    }
+    if (e.target.checked) ensureAudio();
+  });
+  bindSlider("callvol", "callVol", (v) => v.toFixed(2));
+  document.getElementById("audioFile").addEventListener("change", (e) => {
+    if (e.target.files && e.target.files[0]) loadAudioFile(e.target.files[0]);
+  });
+  document.getElementById("btnSynth").addEventListener("click", () => {
+    state.customBuffer = null;
+    document.getElementById("audioName").textContent = "(合成音)";
   });
 
   document.getElementById("btnPlay").addEventListener("click", () => {

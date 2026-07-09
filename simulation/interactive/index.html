@@ -103,6 +103,13 @@
     <label class="chk"><input type="checkbox" id="latcomp" checked> 検出遅延を補正</label>
     <label class="chk"><input type="checkbox" id="showlinks" checked> 最近傍リンクを表示</label>
     <label class="chk"><input type="checkbox" id="sound"> 音を鳴らす(WebAudio)</label>
+    <div class="row"><label>再生する音源 <span class="v" id="audioName">(合成音)</span></label>
+      <input type="file" id="audioFile" accept="audio/*" style="width:100%; font-size:11px;">
+      <button id="btnSynth" style="margin-top:6px;">合成音に戻す</button>
+    </div>
+    <div class="row"><label>再生音量 <span class="v" id="callvolVal"></span></label>
+      <input type="range" id="callvol" min="0" max="1" step="0.05" value="0.9"></div>
+    <div class="hint">カエルの WAV/MP3 を読み込むと、各個体がその音で鳴きます（個体差として再生速度を微妙に散らします）。</div>
 
     <div id="inspector">
       <h2>選択中の環境音</h2>

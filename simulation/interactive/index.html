@@ -5,38 +5,48 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Artificial Sound Creatures - 合唱シミュレーター</title>
 <style>
-  :root { --bg:#0d1117; --panel:#161b22; --line:#30363d; --txt:#c9d1d9; --accent:#4fd1c5; }
+  :root {
+    --bg:#ffffff; --panel:#f6f8fa; --line:#d0d7de; --txt:#1f2328;
+    --muted:#57606a; --accent:#0969da; --btn:#ffffff; --btnHover:#eef2f6;
+  }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin:0; background:var(--bg); color:var(--txt);
     font-family: system-ui, -apple-system, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
   }
   header { padding:12px 18px; border-bottom:1px solid var(--line); }
   header h1 { font-size:16px; margin:0; }
-  header p { margin:4px 0 0; font-size:12px; color:#8b949e; }
-  .wrap { display:flex; gap:16px; padding:16px; align-items:flex-start; flex-wrap:wrap; }
-  .stage { display:flex; flex-direction:column; gap:8px; }
-  canvas { background:#0d1117; border:1px solid var(--line); border-radius:8px; touch-action:none; }
-  #field { cursor:grab; }
+  header p { margin:4px 0 0; font-size:12px; color:var(--muted); }
+
+  .wrap { display:flex; gap:16px; padding:16px; align-items:flex-start; }
+  .stage { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:8px; }
   .panel {
-    background:var(--panel); border:1px solid var(--line); border-radius:8px;
-    padding:14px; width:300px;
+    flex:0 0 320px; background:var(--panel); border:1px solid var(--line);
+    border-radius:8px; padding:14px;
   }
-  .panel h2 { font-size:13px; margin:0 0 10px; color:#e6edf3; }
+
+  canvas {
+    width:100%; height:auto; display:block;
+    background:#f4f6f9; border:1px solid var(--line); border-radius:8px; touch-action:none;
+  }
+  #field { cursor:grab; }
+
+  .panel h2 { font-size:13px; margin:0 0 10px; color:var(--txt); }
   .row { margin:10px 0; }
   .row label { display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px; }
-  .row label .v { color:var(--accent); }
-  input[type=range] { width:100%; }
+  .row label .v { color:var(--accent); font-variant-numeric:tabular-nums; }
+  input[type=range] { width:100%; accent-color:var(--accent); }
   .btns { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 12px; }
   button, select {
-    background:#21262d; color:var(--txt); border:1px solid var(--line);
+    background:var(--btn); color:var(--txt); border:1px solid var(--line);
     border-radius:6px; padding:6px 10px; font-size:12px; cursor:pointer;
   }
-  button:hover { border-color:var(--accent); }
+  button:hover { background:var(--btnHover); border-color:var(--accent); }
   .metric { font-size:28px; font-weight:700; color:var(--accent); }
-  .metric small { font-size:12px; color:#8b949e; font-weight:400; }
+  .metric small { font-size:12px; color:var(--muted); font-weight:400; }
   .chk { display:flex; align-items:center; gap:6px; font-size:12px; margin:6px 0; }
-  .hint { font-size:11px; color:#8b949e; line-height:1.5; }
+  .hint { font-size:11px; color:var(--muted); line-height:1.5; }
   #inspector { border-top:1px solid var(--line); margin-top:10px; padding-top:10px; }
   .sep { border-top:1px solid var(--line); margin:12px 0; }
 </style>

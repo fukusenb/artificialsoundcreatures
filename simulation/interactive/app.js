@@ -11,14 +11,15 @@
  * 環境音は「検出のマスキング」として作用し、近くの個体は相手の鳴きを聞き逃しやすくなる。
  */
 
-const FIELD_W = 660, FIELD_H = 480;
+let FIELD_W = 1000, FIELD_H = 600;   // 実行時に画面幅へ追従(sizeCanvas)
 const RASTER_H = 150;
 const A0 = 1.0;             // 発声音量
 const EPS = 1e-6;
 
+// ライトテーマ(白背景)で視認できる、やや濃いめの配色
 const COLORS = [
-  "#4fd1c5", "#f6ad55", "#fc8181", "#63b3ed", "#b794f4", "#68d391",
-  "#f687b3", "#f6e05e", "#76e4f7", "#ff8a65", "#9ae6b4", "#d6bcfa",
+  "#0d9488", "#ea580c", "#dc2626", "#2563eb", "#7c3aed", "#16a34a",
+  "#db2777", "#ca8a04", "#0891b2", "#c2410c", "#059669", "#9333ea",
 ];
 
 // ---- 状態 ------------------------------------------------------------
@@ -195,18 +196,18 @@ function nearestOf(i) {
 // ---- 描画 ------------------------------------------------------------
 function render() {
   fctx.clearRect(0, 0, FIELD_W, FIELD_H);
-  fctx.fillStyle = "#0d1117";
+  fctx.fillStyle = "#f4f6f9";
   fctx.fillRect(0, 0, FIELD_W, FIELD_H);
 
   // 環境音源(影響範囲)
   for (const nz of state.noises) {
     const g = fctx.createRadialGradient(nz.x, nz.y, 2, nz.x, nz.y, nz.radius);
-    const a = 0.10 + 0.25 * nz.level;
-    g.addColorStop(0, `rgba(220,80,80,${a})`);
-    g.addColorStop(1, "rgba(220,80,80,0)");
+    const a = 0.12 + 0.30 * nz.level;
+    g.addColorStop(0, `rgba(220,60,60,${a})`);
+    g.addColorStop(1, "rgba(220,60,60,0)");
     fctx.fillStyle = g;
     fctx.beginPath(); fctx.arc(nz.x, nz.y, nz.radius, 0, 2 * Math.PI); fctx.fill();
-    fctx.strokeStyle = (state.selected === nz) ? "#fff" : "rgba(220,80,80,0.6)";
+    fctx.strokeStyle = (state.selected === nz) ? "#111827" : "rgba(200,50,50,0.7)";
     fctx.lineWidth = (state.selected === nz) ? 2 : 1;
     fctx.beginPath(); fctx.arc(nz.x, nz.y, 9, 0, 2 * Math.PI); fctx.stroke();
     fctx.fillStyle = "rgba(220,80,80,0.9)";
@@ -225,8 +226,8 @@ function render() {
       seen.add(key);
       let pd = Math.abs(state.frogs[i].phase - state.frogs[j].phase) % 1;
       pd = Math.min(pd, 1 - pd) / 0.5;      // 0..1
-      const r = Math.round(255 * (1 - pd)), gg = Math.round(200 * pd);
-      fctx.strokeStyle = `rgba(${r},${gg},90,0.5)`;
+      const r = Math.round(210 * (1 - pd)), gg = Math.round(170 * pd);
+      fctx.strokeStyle = `rgba(${r},${gg},60,0.7)`;
       fctx.lineWidth = 1.5;
       fctx.beginPath();
       fctx.moveTo(state.frogs[i].x, state.frogs[i].y);
@@ -241,14 +242,14 @@ function render() {
     const col = COLORS[f.uid % COLORS.length];
     // 発声フラッシュ(広がる輪)
     if (f.flash > 0) {
-      fctx.strokeStyle = `rgba(255,255,255,${f.flash})`;
+      fctx.strokeStyle = `rgba(15,23,42,${0.55 * f.flash})`;
       fctx.lineWidth = 2;
       fctx.beginPath();
       fctx.arc(f.x, f.y, 14 + (1 - f.flash) * 26, 0, 2 * Math.PI);
       fctx.stroke();
     }
     // 位相リング
-    fctx.strokeStyle = "rgba(255,255,255,0.18)";
+    fctx.strokeStyle = "rgba(0,0,0,0.12)";
     fctx.lineWidth = 3;
     fctx.beginPath(); fctx.arc(f.x, f.y, 14, 0, 2 * Math.PI); fctx.stroke();
     fctx.strokeStyle = col; fctx.lineWidth = 3;
@@ -259,10 +260,10 @@ function render() {
     fctx.fillStyle = col;
     fctx.beginPath(); fctx.arc(f.x, f.y, 9 + 3 * f.flash, 0, 2 * Math.PI); fctx.fill();
     if (state.selected === f) {
-      fctx.strokeStyle = "#fff"; fctx.lineWidth = 2;
+      fctx.strokeStyle = "#111827"; fctx.lineWidth = 2;
       fctx.beginPath(); fctx.arc(f.x, f.y, 20, 0, 2 * Math.PI); fctx.stroke();
     }
-    fctx.fillStyle = "rgba(255,255,255,0.75)";
+    fctx.fillStyle = "rgba(0,0,0,0.65)";
     fctx.font = "10px system-ui";
     fctx.fillText("#" + i, f.x - 6, f.y + 3);
   }
@@ -273,13 +274,13 @@ function render() {
 
 function drawRaster() {
   rctx.clearRect(0, 0, field.width, RASTER_H);
-  rctx.fillStyle = "#0d1117";
+  rctx.fillStyle = "#f4f6f9";
   rctx.fillRect(0, 0, field.width, RASTER_H);
   const W = field.width, win = 20;
   const t0 = state.t - win;
   const n = Math.max(1, state.frogs.length);
   // グリッド
-  rctx.strokeStyle = "rgba(255,255,255,0.06)";
+  rctx.strokeStyle = "rgba(0,0,0,0.06)";
   for (let s = Math.ceil(t0); s <= state.t; s++) {
     const x = ((s - t0) / win) * W;
     rctx.beginPath(); rctx.moveTo(x, 0); rctx.lineTo(x, RASTER_H); rctx.stroke();
@@ -292,7 +293,7 @@ function drawRaster() {
     rctx.strokeStyle = col; rctx.lineWidth = 2;
     rctx.beginPath(); rctx.moveTo(x, y - 5); rctx.lineTo(x, y + 5); rctx.stroke();
   }
-  rctx.fillStyle = "rgba(255,255,255,0.5)"; rctx.font = "11px system-ui";
+  rctx.fillStyle = "rgba(0,0,0,0.5)"; rctx.font = "11px system-ui";
   rctx.fillText("call raster (last 20 s)  \u2192 time", 8, 14);
 }
 
@@ -510,13 +511,25 @@ function loop(ts) {
   requestAnimationFrame(loop);
 }
 
+function sizeCanvas() {
+  const stage = field.parentElement;
+  const w = Math.max(320, Math.min(1600, stage.clientWidth));
+  FIELD_W = Math.round(w);
+  FIELD_H = Math.round(w * 0.56);
+  field.width = FIELD_W; field.height = FIELD_H;
+  raster.width = FIELD_W; raster.height = RASTER_H;
+  // 画面が狭くなった場合は個体・環境音を新しい枠内に収める
+  for (const f of state.frogs) { f.x = Math.min(f.x, FIELD_W); f.y = Math.min(f.y, FIELD_H); }
+  for (const nz of state.noises) { nz.x = Math.min(nz.x, FIELD_W); nz.y = Math.min(nz.y, FIELD_H); }
+}
+
 function init() {
   field = document.getElementById("field");
   raster = document.getElementById("raster");
-  field.width = FIELD_W; field.height = FIELD_H;
-  raster.width = FIELD_W; raster.height = RASTER_H;
   fctx = field.getContext("2d");
   rctx = raster.getContext("2d");
+  sizeCanvas();
+  window.addEventListener("resize", sizeCanvas);
 
   // 初期配置: 円周上に 6 体 + 環境音 1
   const cx = FIELD_W / 2, cy = FIELD_H / 2, R = 150;

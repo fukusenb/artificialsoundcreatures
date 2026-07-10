@@ -21,40 +21,33 @@
 
   .wrap { display:flex; gap:16px; padding:16px; align-items:flex-start; }
   .stage { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:8px; }
-  .panel {
-    flex:0 0 320px; background:var(--panel); border:1px solid var(--line);
-    border-radius:8px; padding:14px;
-  }
+  .panel { flex:0 0 330px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; }
 
-  canvas {
-    width:100%; height:auto; display:block;
-    background:#f4f6f9; border:1px solid var(--line); border-radius:8px; touch-action:none;
-  }
+  canvas { width:100%; height:auto; display:block; background:#f4f6f9; border:1px solid var(--line); border-radius:8px; touch-action:none; }
   #field { cursor:grab; }
 
   .panel h2 { font-size:13px; margin:0 0 10px; color:var(--txt); }
-  .row { margin:10px 0; }
+  .row { margin:9px 0; }
   .row label { display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px; }
   .row label .v { color:var(--accent); font-variant-numeric:tabular-nums; }
   input[type=range] { width:100%; accent-color:var(--accent); }
   .btns { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0 12px; }
-  button, select {
-    background:var(--btn); color:var(--txt); border:1px solid var(--line);
-    border-radius:6px; padding:6px 10px; font-size:12px; cursor:pointer;
-  }
+  button, select { background:var(--btn); color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-size:12px; cursor:pointer; }
   button:hover { background:var(--btnHover); border-color:var(--accent); }
-  .metric { font-size:28px; font-weight:700; color:var(--accent); }
-  .metric small { font-size:12px; color:var(--muted); font-weight:400; }
+  .metrics { display:flex; gap:20px; }
+  .metric { font-size:26px; font-weight:700; color:var(--accent); }
+  .metric small { display:block; font-size:11px; color:var(--muted); font-weight:400; }
   .chk { display:flex; align-items:center; gap:6px; font-size:12px; margin:6px 0; }
   .hint { font-size:11px; color:var(--muted); line-height:1.5; }
   #inspector { border-top:1px solid var(--line); margin-top:10px; padding-top:10px; }
   .sep { border-top:1px solid var(--line); margin:12px 0; }
+  .grp { font-size:11px; color:var(--muted); margin:12px 0 2px; font-weight:600; }
 </style>
 </head>
 <body>
 <header>
   <h1>Artificial Sound Creatures — 合唱シミュレーター</h1>
-  <p>個体をドラッグで移動 / 環境音を配置 / 逆相同期(交互鳴き)の自己組織化を観察</p>
+  <p>2層モデル(Felix Hess の内部状態 × 合原の逆相)。個体/環境音をドラッグ、人を近づけると静まる。</p>
 </header>
 
 <div class="wrap">
@@ -62,8 +55,8 @@
     <canvas id="field"></canvas>
     <canvas id="raster"></canvas>
     <div class="hint">
-      操作: 個体・環境音を<b>ドラッグ</b>して移動。クリックで選択、<b>Delete/Backspace</b>で削除。<br>
-      リンクの色 = 最近傍ペアの逆相度(緑=逆相に近い / 赤=同相)。輪の広がり = 発声。
+      色付きの輪 = 鳴いている個体(弧=位相)。灰色の輪 = 沈黙中(弧=鳴きやすさの溜まり具合)。<br>
+      個体・環境音を<b>ドラッグ</b>、クリックで選択、<b>Delete</b>で削除。リンク色=逆相度(緑=逆相/赤=同相)。
     </div>
   </div>
 
@@ -71,46 +64,54 @@
     <h2>操作</h2>
     <div class="btns">
       <button id="btnPlay">⏸ 一時停止</button>
-      <button id="btnReset">位相リセット</button>
+      <button id="btnReset">リセット</button>
     </div>
     <div class="btns">
       <button id="btnAddFrog">＋ 個体</button>
-      <button id="btnAddNoise">＋ 環境音</button>
+      <button id="btnAddNoise">＋ 環境音/人</button>
       <button id="btnDelete">選択を削除</button>
       <button id="btnClearNoise">環境音全消し</button>
     </div>
 
     <div class="sep"></div>
-    <h2>逆相スコア <small>(最近傍ペア平均)</small></h2>
-    <div class="metric" id="metric">—</div>
-    <div class="hint">100% = 完全な交互鳴き(位相差π) / 0% = 同時に鳴く</div>
+    <div class="metrics">
+      <div><div class="metric" id="metric">—</div><small>逆相スコア(鳴いてるペア)</small></div>
+      <div><div class="metric" id="activefrac">0%</div><small>鳴いている割合</small></div>
+    </div>
 
-    <div class="sep"></div>
-    <h2>振動子パラメータ</h2>
-    <div class="row"><label>結合強度 K <span class="v" id="KVal"></span></label>
-      <input type="range" id="K" min="0" max="1" step="0.01" value="0.4"></div>
+    <div class="grp">速い層(発声リズム)</div>
     <div class="row"><label>固有周期 T <span class="v" id="TVal"></span></label>
       <input type="range" id="T" min="0.5" max="3" step="0.05" value="1.0"></div>
     <div class="row"><label>周期の個体差 <span class="v" id="spreadVal"></span></label>
       <input type="range" id="spread" min="0" max="0.15" step="0.005" value="0.05"></div>
+    <div class="row"><label>検出遅延 <span class="v" id="latencyVal"></span></label>
+      <input type="range" id="latency" min="0" max="0.4" step="0.01" value="0.1"></div>
+
+    <div class="grp">遅い層(鳴くかどうか: Felix Hess)</div>
+    <div class="row"><label>ベース駆動 baseline <span class="v" id="baselineVal"></span></label>
+      <input type="range" id="baseline" min="0" max="1" step="0.01" value="0.15"></div>
+    <div class="row"><label>発声閾値 threshold <span class="v" id="thresholdVal"></span></label>
+      <input type="range" id="threshold" min="0.3" max="2" step="0.05" value="1.0"></div>
+    <div class="row"><label>自発の溜まり速度 <span class="v" id="spontrateVal"></span></label>
+      <input type="range" id="spontrate" min="0" max="0.6" step="0.01" value="0.20"></div>
+    <div class="row"><label>興奮ゲイン(カエル+) <span class="v" id="excgainVal"></span></label>
+      <input type="range" id="excgain" min="0" max="2" step="0.05" value="0.9"></div>
+    <div class="row"><label>興奮の減衰 τ <span class="v" id="exctauVal"></span></label>
+      <input type="range" id="exctau" min="0.5" max="8" step="0.1" value="2.5"></div>
+    <div class="row"><label>抑制ゲイン(環境音−) <span class="v" id="inhgainVal"></span></label>
+      <input type="range" id="inhgain" min="0" max="6" step="0.1" value="2.5"></div>
+    <div class="row"><label>抑制の減衰 τ <span class="v" id="inhtauVal"></span></label>
+      <input type="range" id="inhtau" min="0.5" max="10" step="0.1" value="3.0"></div>
+
+    <div class="grp">センシング</div>
     <div class="row"><label>近傍音量ゲート <span class="v" id="gateVal"></span></label>
       <input type="range" id="gate" min="0" max="0.6" step="0.01" value="0.15"></div>
     <div class="row"><label>基準距離 d0 <span class="v" id="refdistVal"></span></label>
-      <input type="range" id="refdist" min="60" max="240" step="5" value="120"></div>
-    <div class="row"><label>検出遅延 <span class="v" id="latencyVal"></span></label>
-      <input type="range" id="latency" min="0" max="0.4" step="0.01" value="0.1"></div>
-    <div class="row"><label>環境音マスキング <span class="v" id="noisemaskVal"></span></label>
-      <input type="range" id="noisemask" min="0" max="1" step="0.05" value="0.8"></div>
+      <input type="range" id="refdist" min="60" max="300" step="5" value="150"></div>
     <div class="row"><label>再生速度 <span class="v" id="speedVal"></span></label>
       <input type="range" id="speed" min="0.25" max="4" step="0.25" value="1"></div>
 
-    <div class="row"><label>結合モード</label>
-      <select id="mode">
-        <option value="prc">PRC(徐々に寄せる)</option>
-        <option value="schedule">Schedule(+T/2で予約・最近傍1体)</option>
-      </select>
-    </div>
-    <label class="chk"><input type="checkbox" id="latcomp" checked> 検出遅延を補正</label>
+    <label class="chk"><input type="checkbox" id="latcomp" checked> 検出遅延を補正(+T/2セット時)</label>
     <label class="chk"><input type="checkbox" id="showlinks" checked> 最近傍リンクを表示</label>
     <label class="chk"><input type="checkbox" id="sound"> 音を鳴らす(WebAudio)</label>
     <div class="row"><label>再生する音源 <span class="v" id="audioName">(合成音)</span></label>
@@ -119,14 +120,14 @@
     </div>
     <div class="row"><label>再生音量 <span class="v" id="callvolVal"></span></label>
       <input type="range" id="callvol" min="0" max="1" step="0.05" value="0.9"></div>
-    <div class="hint">カエルの WAV/MP3 を読み込むと、各個体がその音で鳴きます（個体差として再生速度を微妙に散らします）。</div>
 
     <div id="inspector">
-      <h2>選択中の環境音</h2>
+      <h2>選択中の環境音 / 人</h2>
       <div class="row"><label>音量 level</label>
-        <input type="range" id="nzLevel" min="0" max="1.5" step="0.05" value="0.6"></div>
+        <input type="range" id="nzLevel" min="0" max="1.5" step="0.05" value="0.9"></div>
       <div class="row"><label>影響半径 radius</label>
-        <input type="range" id="nzRadius" min="30" max="250" step="5" value="110"></div>
+        <input type="range" id="nzRadius" min="40" max="320" step="5" value="150"></div>
+      <div class="hint">これを個体の近くにドラッグすると、周りが静まります(=人が田んぼに近づく)。</div>
     </div>
   </div>
 </div>

@@ -54,6 +54,8 @@ function makeFrog(x, y) {
     phase: rand(),
     period: Math.max(0.3, P.T * (1 + P.spread * randn())),
     threshold: P.threshold * (1 + 0.15 * randn()),
+    // per-frog パラメータオーバーライド (null = グローバル値を使用)
+    excGain: null, spontRate: null, fatigue: null,
     active: false,
     spont: rand() * 0.3, exc: 0, inh: 0, D: 0,
     lastHeardTime: -1e9, lastHeardLoud: 0,
@@ -81,11 +83,14 @@ function step(dt) {
 
   for (const f of frogs) {
     // --- 遅い層: 内部状態の更新 ---
+    // per-frog オーバーライドがあればそれを、なければグローバル値を使用
+    const fSpontRate = f.spontRate ?? P.spontRate;
+    const fFatigue = f.fatigue ?? P.fatigue;
     f.exc -= f.exc * (dt / P.excTau);
     f.inh -= f.inh * (dt / P.inhTau);
     f.inh += P.inhGain * noiseAt(f.x, f.y) * dt;
-    if (f.active) f.spont = Math.max(0, f.spont - P.fatigue * dt);
-    else f.spont = Math.min(1.2, f.spont + P.spontRate * dt);
+    if (f.active) f.spont = Math.max(0, f.spont - fFatigue * dt);
+    else f.spont = Math.min(1.2, f.spont + fSpontRate * dt);
     f.D = P.baseline + f.spont + f.exc - f.inh;
     f.flash = Math.max(0, f.flash - dt * 3.0);
 
@@ -110,7 +115,7 @@ function step(dt) {
     if (f.phase >= 1.0) {
       f.phase -= 1.0;
       f.flash = 1.0;
-      f.exc += 0.15 * P.excGain;
+      f.exc += 0.15 * (f.excGain ?? P.excGain);
       state.callLog.push({ t: state.t, idx: i });
       state.pending.push({ applyTime: state.t + P.latency, source: i });
       if (P.sound) playCall(f.x);
@@ -131,7 +136,7 @@ function step(dt) {
       const d = dist(l, src);
       const heard = 1.0 / (1 + (d / P.refDist) * (d / P.refDist));
       if (heard < P.gate) continue;
-      l.exc += P.excGain * heard;                    // カエル声で興奮(全個体)
+      l.exc += (l.excGain ?? P.excGain) * heard;    // カエル声で興奮(per-frog excGain)
       if (!l.active && heard >= l.lastHeardLoud * 0.9) {   // SILENT の個体はタイミングを記憶
         l.lastHeardTime = state.t;
         l.lastHeardLoud = Math.max(heard, l.lastHeardLoud * 0.5);
@@ -483,6 +488,45 @@ function setupControls() {
     for (const sel of state.selectedSet) { if ("radius" in sel) sel.radius = parseFloat(e.target.value); }
   });
   window.addEventListener("keydown", (e) => { if (e.key === "Backspace" || e.key === "Delete") deleteSelected(); });
+
+  // ---- 個体インスペクター ----
+  function selectedFrog() {
+    if (state.selectedSet.size !== 1) return null;
+    const [sel] = state.selectedSet;
+    return "phase" in sel ? sel : null;
+  }
+  document.getElementById("fiPeriod").addEventListener("input", (e) => {
+    const f = selectedFrog(); if (!f) return;
+    f.period = Math.max(0.3, parseFloat(e.target.value));
+    document.getElementById("fiPeriodVal").textContent = f.period.toFixed(2) + " s";
+  });
+  document.getElementById("fiThreshold").addEventListener("input", (e) => {
+    const f = selectedFrog(); if (!f) return;
+    f.threshold = Math.max(0.1, parseFloat(e.target.value));
+    document.getElementById("fiThresholdVal").textContent = f.threshold.toFixed(2);
+  });
+  document.getElementById("fiExcGain").addEventListener("input", (e) => {
+    const f = selectedFrog(); if (!f) return;
+    f.excGain = parseFloat(e.target.value);
+    const el = document.getElementById("fiExcGainVal");
+    el.textContent = f.excGain.toFixed(2); el.className = "v overridden";
+    document.getElementById("fiExcGainReset").disabled = false;
+  });
+  document.getElementById("fiExcGainReset").addEventListener("click", () => {
+    const f = selectedFrog(); if (!f) return;
+    f.excGain = null; refreshInspector();
+  });
+  document.getElementById("fiSpontRate").addEventListener("input", (e) => {
+    const f = selectedFrog(); if (!f) return;
+    f.spontRate = parseFloat(e.target.value);
+    const el = document.getElementById("fiSpontRateVal");
+    el.textContent = f.spontRate.toFixed(2); el.className = "v overridden";
+    document.getElementById("fiSpontRateReset").disabled = false;
+  });
+  document.getElementById("fiSpontRateReset").addEventListener("click", () => {
+    const f = selectedFrog(); if (!f) return;
+    f.spontRate = null; refreshInspector();
+  });
 }
 
 function deleteSelected() {
@@ -493,26 +537,54 @@ function deleteSelected() {
   refreshInspector();
 }
 function refreshInspector() {
-  const box = document.getElementById("inspector");
+  const noiseBox = document.getElementById("inspector");
+  const frogBox = document.getElementById("frogInspector");
   const btn = document.getElementById("btnDelete");
   const n = state.selectedSet.size;
+  const P = state.params;
 
   // ボタンのラベルを選択数に応じて更新
   if (n === 0) btn.textContent = "選択を削除";
   else if (n === 1) btn.textContent = "選択を削除 (1個)";
   else btn.textContent = `選択を削除 (${n}個)`;
 
-  // 環境音が1つだけ選択されているときのみインスペクターを表示
-  if (n === 1) {
-    const [sel] = state.selectedSet;
-    if ("level" in sel) {
-      box.style.display = "block";
-      document.getElementById("nzLevel").value = sel.level;
-      document.getElementById("nzRadius").value = sel.radius;
-      return;
-    }
+  noiseBox.style.display = "none";
+  frogBox.style.display = "none";
+
+  if (n !== 1) return;
+  const [sel] = state.selectedSet;
+
+  if ("level" in sel) {
+    // 環境音インスペクター
+    noiseBox.style.display = "block";
+    document.getElementById("nzLevel").value = sel.level;
+    document.getElementById("nzRadius").value = sel.radius;
+  } else if ("phase" in sel) {
+    // 個体インスペクター
+    frogBox.style.display = "block";
+    const fi = frogBox;
+
+    document.getElementById("fiPeriod").value = sel.period;
+    document.getElementById("fiPeriodVal").textContent = sel.period.toFixed(2) + " s";
+
+    document.getElementById("fiThreshold").value = sel.threshold;
+    document.getElementById("fiThresholdVal").textContent = sel.threshold.toFixed(2);
+
+    const excGainEff = sel.excGain ?? P.excGain;
+    const excGainEl = document.getElementById("fiExcGain");
+    excGainEl.value = excGainEff;
+    const excGainVal = document.getElementById("fiExcGainVal");
+    excGainVal.textContent = excGainEff.toFixed(2);
+    excGainVal.className = sel.excGain !== null ? "v overridden" : "v";
+    document.getElementById("fiExcGainReset").disabled = sel.excGain === null;
+
+    const spontRateEff = sel.spontRate ?? P.spontRate;
+    document.getElementById("fiSpontRate").value = spontRateEff;
+    const spontRateVal = document.getElementById("fiSpontRateVal");
+    spontRateVal.textContent = spontRateEff.toFixed(2);
+    spontRateVal.className = sel.spontRate !== null ? "v overridden" : "v";
+    document.getElementById("fiSpontRateReset").disabled = sel.spontRate === null;
   }
-  box.style.display = "none";
 }
 
 // ---- メインループ ----------------------------------------------------

@@ -2,15 +2,14 @@
 /*
  * Artificial Sound Creatures - インタラクティブ合唱シミュレーター (2 層モデル)
  *
- * 遅い層 (Felix Hess): 内部状態で「鳴くかどうか」を決める
- *   - 自発 spont: 沈黙中に溜まり、鳴くと疲れて減る(種火になる)
- *   - 興奮 exc  : カエルの声を聞くと増加、時間減衰(合唱の持続)
- *   - 抑制 inh  : 環境音(人など)で増加、時間減衰
- *   - 駆動 D = baseline + spont + exc - inh。D>閾値 で CALLING、下回ると SILENT。
+ * 遅い層 (Felix Hess): 単一の「鳴きたさ E ∈ [0,1] (0〜100%)」で鳴くかどうかを決める
+ *   - E は自発的にじわじわ上昇し、カエルの声を聞くとジャンプ(興奮)。
+ *   - 環境音(人など)がいると下がり(抑制)、鳴いている間は疲れて下がる。
+ *   - E が 100% で CALLING 開始。鳴いている間に停止レベルを下回ると SILENT。
  * 速い層 (合原/逆相): 「いつ鳴くか」
  *   - SILENT の間だけ他個体の鳴きとタイミングを聞く。
  *   - SILENT->CALLING の瞬間に、最も大きく聞いた鳴きへ +T/2(逆相)で位相を一度だけセット。
- *   - 鳴き始めたらタイミングは聞かず自走。以降は音の種類で内部状態を更新するだけ。
+ *   - 鳴き始めたらタイミングは聞かず自走。以降は音の種類で E を更新するだけ。
  */
 
 let FIELD_W = 1000, FIELD_H = 600;
@@ -29,8 +28,7 @@ const state = {
   boxSelect: null,          // 範囲選択中の矩形 { x0, y0, x1, y1 }
   params: {
     T: 1.0, spread: 0.05, gate: 0.15, refDist: 150, latency: 0.1, speed: 1.0,
-    baseline: 0.15, threshold: 1.0, spontRate: 0.20, fatigue: 0.06,
-    excGain: 0.9, excTau: 2.5, inhGain: 2.5, inhTau: 3.0,
+    riseRate: 0.35, excGain: 0.4, inhGain: 1.5, fatigue: 0.5, offLevel: 0.35,
     latComp: true, showLinks: true, sound: false, callVol: 0.9,
   },
   audio: null, customBuffer: null,
@@ -53,9 +51,9 @@ function makeFrog(x, y) {
     x, y,
     phase: rand(),
     period: Math.max(0.3, P.T * (1 + P.spread * randn())),
-    threshold: P.threshold * (1 + 0.15 * randn()),
+    rise: Math.max(0.02, P.riseRate * (1 + 0.15 * randn())),   // 自発上昇の個体差
     active: false,
-    spont: rand() * 0.3, exc: 0, inh: 0, D: 0,
+    E: rand() * 0.5,                 // 鳴きたさ 0..1
     lastHeardTime: -1e9, lastHeardLoud: 0,
     flash: 0,
   };
@@ -80,24 +78,22 @@ function step(dt) {
   const frogs = state.frogs;
 
   for (const f of frogs) {
-    // --- 遅い層: 内部状態の更新 ---
-    f.exc -= f.exc * (dt / P.excTau);
-    f.inh -= f.inh * (dt / P.inhTau);
-    f.inh += P.inhGain * noiseAt(f.x, f.y) * dt;
-    if (f.active) f.spont = Math.max(0, f.spont - P.fatigue * dt);
-    else f.spont = Math.min(1.2, f.spont + P.spontRate * dt);
-    f.D = P.baseline + f.spont + f.exc - f.inh;
+    // --- 遅い層: 鳴きたさ E の更新 ---
+    f.E += f.rise * dt;                          // 自発上昇
+    f.E -= P.inhGain * noiseAt(f.x, f.y) * dt;    // 抑制(環境音・人)
+    if (f.active) f.E -= P.fatigue * dt;          // 発声疲労
+    f.E = Math.max(0, Math.min(1, f.E));
     f.flash = Math.max(0, f.flash - dt * 3.0);
 
-    // --- 状態遷移 ---
-    if (!f.active && f.D > f.threshold) {
+    // --- 状態遷移(ヒステリシス: ON=1.0, OFF=offLevel) ---
+    if (!f.active && f.E >= 1.0) {
       if (state.t - f.lastHeardTime < 3 * f.period) {
         const comp = P.latComp ? P.latency / f.period : 0;
         const dtSince = state.t - f.lastHeardTime;
         f.phase = ((0.5 + comp - dtSince / f.period) % 1 + 1) % 1;   // +T/2 逆相を一発セット
       }
       f.active = true;
-    } else if (f.active && f.D < f.threshold) {
+    } else if (f.active && f.E <= P.offLevel) {
       f.active = false;
     }
   }
@@ -110,7 +106,6 @@ function step(dt) {
     if (f.phase >= 1.0) {
       f.phase -= 1.0;
       f.flash = 1.0;
-      f.exc += 0.15 * P.excGain;
       state.callLog.push({ t: state.t, idx: i });
       state.pending.push({ applyTime: state.t + P.latency, source: i });
       if (P.sound) playCall(f.x);
@@ -131,7 +126,7 @@ function step(dt) {
       const d = dist(l, src);
       const heard = 1.0 / (1 + (d / P.refDist) * (d / P.refDist));
       if (heard < P.gate) continue;
-      l.exc += P.excGain * heard;                    // カエル声で興奮(全個体)
+      l.E = Math.min(1, l.E + P.excGain * heard);    // カエル声で興奮(全個体)
       if (!l.active && heard >= l.lastHeardLoud * 0.9) {   // SILENT の個体はタイミングを記憶
         l.lastHeardTime = state.t;
         l.lastHeardLoud = Math.max(heard, l.lastHeardLoud * 0.5);
@@ -232,8 +227,8 @@ function render() {
       fctx.fillStyle = col;
       fctx.beginPath(); fctx.arc(f.x, f.y, 9 + 3 * f.flash, 0, 2 * Math.PI); fctx.fill();
     } else {
-      // SILENT: 灰色の輪 + 「ためこみ度(D/閾値)」の弧
-      const charge = Math.max(0, Math.min(1, f.D / f.threshold));
+      // SILENT: 灰色の輪 + 「鳴きたさ E(0..100%)」の弧
+      const charge = Math.max(0, Math.min(1, f.E));
       fctx.strokeStyle = "rgba(0,0,0,0.15)"; fctx.lineWidth = 3;
       fctx.beginPath(); fctx.arc(f.x, f.y, 14, 0, 2 * Math.PI); fctx.stroke();
       fctx.strokeStyle = "rgba(120,120,120,0.9)"; fctx.lineWidth = 3;
@@ -437,13 +432,11 @@ function bindSlider(id, key, fmt) {
 function setupControls() {
   bindSlider("T", "T", (v) => v.toFixed(2) + " s");
   bindSlider("spread", "spread", (v) => (v * 100).toFixed(0) + " %");
-  bindSlider("baseline", "baseline", (v) => v.toFixed(2));
-  bindSlider("threshold", "threshold", (v) => v.toFixed(2));
-  bindSlider("spontrate", "spontRate", (v) => v.toFixed(2));
+  bindSlider("riserate", "riseRate", (v) => v.toFixed(2));
   bindSlider("excgain", "excGain", (v) => v.toFixed(2));
-  bindSlider("exctau", "excTau", (v) => v.toFixed(1) + " s");
   bindSlider("inhgain", "inhGain", (v) => v.toFixed(2));
-  bindSlider("inhtau", "inhTau", (v) => v.toFixed(1) + " s");
+  bindSlider("fatigue", "fatigue", (v) => v.toFixed(2));
+  bindSlider("offlevel", "offLevel", (v) => (v * 100).toFixed(0) + " %");
   bindSlider("gate", "gate", (v) => v.toFixed(2));
   bindSlider("refdist", "refDist", (v) => v.toFixed(0) + " px");
   bindSlider("latency", "latency", (v) => (v * 1000).toFixed(0) + " ms");
@@ -461,7 +454,7 @@ function setupControls() {
     document.getElementById("btnPlay").textContent = state.playing ? "\u23f8 一時停止" : "\u25b6 再生";
   });
   document.getElementById("btnReset").addEventListener("click", () => {
-    for (const f of state.frogs) { f.phase = rand(); f.active = false; f.spont = rand() * 0.3; f.exc = 0; f.inh = 0; f.lastHeardTime = -1e9; f.lastHeardLoud = 0; }
+    for (const f of state.frogs) { f.phase = rand(); f.active = false; f.E = rand() * 0.5; f.lastHeardTime = -1e9; f.lastHeardLoud = 0; }
     state.callLog = []; state.pending = []; state.t = 0;
   });
   document.getElementById("btnAddFrog").addEventListener("click", () => {

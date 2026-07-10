@@ -24,7 +24,9 @@ const COLORS = [
 
 const state = {
   frogs: [], noises: [], pending: [], callLog: [],
-  t: 0, playing: true, drag: null, selected: null,
+  t: 0, playing: true, drag: null,
+  selectedSet: new Set(),  // 選択中のオブジェクト(カエル/環境音)の集合
+  boxSelect: null,          // 範囲選択中の矩形 { x0, y0, x1, y1 }
   params: {
     T: 1.0, spread: 0.05, gate: 0.15, refDist: 150, latency: 0.1, speed: 1.0,
     baseline: 0.15, threshold: 1.0, spontRate: 0.20, fatigue: 0.06,
@@ -187,8 +189,8 @@ function render() {
     g.addColorStop(1, "rgba(220,60,60,0)");
     fctx.fillStyle = g;
     fctx.beginPath(); fctx.arc(nz.x, nz.y, nz.radius, 0, 2 * Math.PI); fctx.fill();
-    fctx.strokeStyle = (state.selected === nz) ? "#111827" : "rgba(200,50,50,0.7)";
-    fctx.lineWidth = (state.selected === nz) ? 2 : 1;
+    fctx.strokeStyle = state.selectedSet.has(nz) ? "#111827" : "rgba(200,50,50,0.7)";
+    fctx.lineWidth = state.selectedSet.has(nz) ? 2 : 1;
     fctx.beginPath(); fctx.arc(nz.x, nz.y, 9, 0, 2 * Math.PI); fctx.stroke();
     fctx.fillStyle = "rgba(200,50,50,0.9)"; fctx.font = "10px system-ui";
     fctx.fillText("環境音/人", nz.x - 24, nz.y - 13);
@@ -240,12 +242,29 @@ function render() {
       fctx.fillStyle = "rgba(150,150,150,0.5)";
       fctx.beginPath(); fctx.arc(f.x, f.y, 7, 0, 2 * Math.PI); fctx.fill();
     }
-    if (state.selected === f) {
-      fctx.strokeStyle = "#111827"; fctx.lineWidth = 2;
-      fctx.beginPath(); fctx.arc(f.x, f.y, 20, 0, 2 * Math.PI); fctx.stroke();
+    if (state.selectedSet.has(f)) {
+      fctx.strokeStyle = "#0969da"; fctx.lineWidth = 2.5;
+      fctx.beginPath(); fctx.arc(f.x, f.y, 21, 0, 2 * Math.PI); fctx.stroke();
+      // 選択済みの塗りつぶし(うすい青)
+      fctx.fillStyle = "rgba(9,105,218,0.08)";
+      fctx.beginPath(); fctx.arc(f.x, f.y, 21, 0, 2 * Math.PI); fctx.fill();
     }
     fctx.fillStyle = "rgba(0,0,0,0.65)"; fctx.font = "10px system-ui";
     fctx.fillText("#" + i, f.x - 6, f.y + 3);
+  }
+
+  // 範囲選択の矩形を描画
+  if (state.boxSelect) {
+    const { x0, y0, x1, y1 } = state.boxSelect;
+    const rx = Math.min(x0, x1), ry = Math.min(y0, y1);
+    const rw = Math.abs(x1 - x0), rh = Math.abs(y1 - y0);
+    fctx.save();
+    fctx.setLineDash([5, 3]);
+    fctx.strokeStyle = "rgba(9,105,218,0.85)"; fctx.lineWidth = 1.5;
+    fctx.strokeRect(rx, ry, rw, rh);
+    fctx.fillStyle = "rgba(9,105,218,0.07)";
+    fctx.fillRect(rx, ry, rw, rh);
+    fctx.restore();
   }
 
   drawRaster();
@@ -344,17 +363,65 @@ function pick(p) {
 function onDown(evt) {
   const p = pointerPos(evt);
   const hit = pick(p);
-  if (hit) { state.selected = hit.obj; state.drag = { obj: hit.obj, dx: hit.obj.x - p.x, dy: hit.obj.y - p.y }; }
-  else state.selected = null;
+  if (hit) {
+    // 既に複数選択されたカエルをクリックした場合は選択を維持してドラッグ
+    if (hit.kind === "frog" && state.selectedSet.has(hit.obj) && state.selectedSet.size > 1) {
+      state.drag = { obj: hit.obj, dx: hit.obj.x - p.x, dy: hit.obj.y - p.y, multi: true };
+    } else {
+      state.selectedSet = new Set([hit.obj]);
+      state.drag = { obj: hit.obj, dx: hit.obj.x - p.x, dy: hit.obj.y - p.y };
+    }
+    field.style.cursor = "grabbing";
+  } else {
+    // 空白をクリック→範囲選択開始
+    state.selectedSet = new Set();
+    state.boxSelect = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+    field.style.cursor = "crosshair";
+  }
   refreshInspector();
 }
 function onMove(evt) {
-  if (!state.drag) return;
-  const p = pointerPos(evt), o = state.drag.obj;
-  o.x = Math.max(0, Math.min(FIELD_W, p.x + state.drag.dx));
-  o.y = Math.max(0, Math.min(FIELD_H, p.y + state.drag.dy));
+  if (state.drag) {
+    const p = pointerPos(evt), o = state.drag.obj;
+    const nx = Math.max(0, Math.min(FIELD_W, p.x + state.drag.dx));
+    const ny = Math.max(0, Math.min(FIELD_H, p.y + state.drag.dy));
+    if (state.drag.multi) {
+      // 複数選択中のカエルをまとめて移動
+      const dx = nx - o.x, dy = ny - o.y;
+      for (const f of state.selectedSet) {
+        if ("phase" in f) {  // frog
+          f.x = Math.max(0, Math.min(FIELD_W, f.x + dx));
+          f.y = Math.max(0, Math.min(FIELD_H, f.y + dy));
+        }
+      }
+    } else {
+      o.x = nx; o.y = ny;
+    }
+  } else if (state.boxSelect) {
+    const p = pointerPos(evt);
+    state.boxSelect.x1 = p.x;
+    state.boxSelect.y1 = p.y;
+  }
 }
-function onUp() { state.drag = null; }
+function onUp() {
+  if (state.boxSelect) {
+    const { x0, y0, x1, y1 } = state.boxSelect;
+    const minX = Math.min(x0, x1), maxX = Math.max(x0, x1);
+    const minY = Math.min(y0, y1), maxY = Math.max(y0, y1);
+    // 5px 以上ドラッグした場合のみ範囲選択
+    if (Math.abs(x1 - x0) > 5 || Math.abs(y1 - y0) > 5) {
+      for (const f of state.frogs) {
+        if (f.x >= minX && f.x <= maxX && f.y >= minY && f.y <= maxY) {
+          state.selectedSet.add(f);
+        }
+      }
+    }
+    state.boxSelect = null;
+    refreshInspector();
+  }
+  state.drag = null;
+  field.style.cursor = "grab";
+}
 
 // ---- コントロール ----------------------------------------------------
 function bindSlider(id, key, fmt) {
@@ -401,30 +468,51 @@ function setupControls() {
     state.frogs.push(makeFrog(80 + rand() * (FIELD_W - 160), 80 + rand() * (FIELD_H - 160)));
   });
   document.getElementById("btnAddNoise").addEventListener("click", () => {
-    const nz = makeNoise(FIELD_W / 2, FIELD_H / 2); state.noises.push(nz); state.selected = nz; refreshInspector();
+    const nz = makeNoise(FIELD_W / 2, FIELD_H / 2);
+    state.noises.push(nz);
+    state.selectedSet = new Set([nz]);
+    refreshInspector();
   });
   document.getElementById("btnDelete").addEventListener("click", deleteSelected);
-  document.getElementById("btnClearNoise").addEventListener("click", () => { state.noises = []; state.selected = null; refreshInspector(); });
+  document.getElementById("btnClearNoise").addEventListener("click", () => { state.noises = []; state.selectedSet = new Set(); refreshInspector(); });
 
-  document.getElementById("nzLevel").addEventListener("input", (e) => { if (state.selected && "level" in state.selected) state.selected.level = parseFloat(e.target.value); });
-  document.getElementById("nzRadius").addEventListener("input", (e) => { if (state.selected && "radius" in state.selected) state.selected.radius = parseFloat(e.target.value); });
+  document.getElementById("nzLevel").addEventListener("input", (e) => {
+    for (const sel of state.selectedSet) { if ("level" in sel) sel.level = parseFloat(e.target.value); }
+  });
+  document.getElementById("nzRadius").addEventListener("input", (e) => {
+    for (const sel of state.selectedSet) { if ("radius" in sel) sel.radius = parseFloat(e.target.value); }
+  });
   window.addEventListener("keydown", (e) => { if (e.key === "Backspace" || e.key === "Delete") deleteSelected(); });
 }
 
 function deleteSelected() {
-  if (!state.selected) return;
-  let k = state.frogs.indexOf(state.selected); if (k >= 0) state.frogs.splice(k, 1);
-  k = state.noises.indexOf(state.selected); if (k >= 0) state.noises.splice(k, 1);
-  state.selected = null; refreshInspector();
+  if (state.selectedSet.size === 0) return;
+  state.frogs = state.frogs.filter((f) => !state.selectedSet.has(f));
+  state.noises = state.noises.filter((nz) => !state.selectedSet.has(nz));
+  state.selectedSet = new Set();
+  refreshInspector();
 }
 function refreshInspector() {
   const box = document.getElementById("inspector");
-  const sel = state.selected;
-  if (sel && "level" in sel) {
-    box.style.display = "block";
-    document.getElementById("nzLevel").value = sel.level;
-    document.getElementById("nzRadius").value = sel.radius;
-  } else box.style.display = "none";
+  const btn = document.getElementById("btnDelete");
+  const n = state.selectedSet.size;
+
+  // ボタンのラベルを選択数に応じて更新
+  if (n === 0) btn.textContent = "選択を削除";
+  else if (n === 1) btn.textContent = "選択を削除 (1個)";
+  else btn.textContent = `選択を削除 (${n}個)`;
+
+  // 環境音が1つだけ選択されているときのみインスペクターを表示
+  if (n === 1) {
+    const [sel] = state.selectedSet;
+    if ("level" in sel) {
+      box.style.display = "block";
+      document.getElementById("nzLevel").value = sel.level;
+      document.getElementById("nzRadius").value = sel.radius;
+      return;
+    }
+  }
+  box.style.display = "none";
 }
 
 // ---- メインループ ----------------------------------------------------

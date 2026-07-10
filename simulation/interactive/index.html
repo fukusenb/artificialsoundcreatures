@@ -21,7 +21,7 @@
 
   .wrap { display:flex; gap:16px; padding:16px; align-items:flex-start; }
   .stage { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:8px; }
-  .panel { flex:0 0 330px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; }
+  .panel { flex:0 0 330px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; max-height:calc(100vh - 80px); overflow-y:auto; position:sticky; top:8px; }
 
   canvas { width:100%; height:auto; display:block; background:#f4f6f9; border:1px solid var(--line); border-radius:8px; touch-action:none; }
   #field { cursor:grab; }
@@ -39,7 +39,8 @@
   .metric small { display:block; font-size:11px; color:var(--muted); font-weight:400; }
   .chk { display:flex; align-items:center; gap:6px; font-size:12px; margin:6px 0; }
   .hint { font-size:11px; color:var(--muted); line-height:1.5; }
-  #inspector { border-top:1px solid var(--line); margin-top:10px; padding-top:10px; }
+  #inspector, #frogInspector { border-top:1px solid var(--line); margin-top:10px; padding-top:10px; }
+  .overridden { font-weight:700; color:var(--accent); }
   .sep { border-top:1px solid var(--line); margin:12px 0; }
   .grp { font-size:11px; color:var(--muted); margin:12px 0 2px; font-weight:600; }
 </style>
@@ -71,6 +72,24 @@
       <button id="btnAddNoise">＋ 環境音/人</button>
       <button id="btnDelete">選択を削除</button>
       <button id="btnClearNoise">環境音全消し</button>
+    </div>
+
+    <div id="frogInspector" style="display:none">
+      <div class="sep"></div>
+      <h2>選択中の個体</h2>
+      <div class="row"><label>固有周期 T <span class="v" id="fiPeriodVal"></span></label>
+        <input type="range" id="fiPeriod" min="0.3" max="3" step="0.05" value="1.0"></div>
+      <div class="row"><label>発声閾値 <span class="v" id="fiThresholdVal"></span></label>
+        <input type="range" id="fiThreshold" min="0.3" max="2" step="0.05" value="1.0"></div>
+      <div class="row">
+        <label>興奮ゲイン <span style="display:flex;gap:4px;align-items:center"><span class="v" id="fiExcGainVal"></span><button id="fiExcGainReset" title="グローバル値に戻す" style="padding:1px 6px;font-size:10px">↺</button></span></label>
+        <input type="range" id="fiExcGain" min="0" max="2" step="0.05" value="0.9">
+      </div>
+      <div class="row">
+        <label>自発速度 <span style="display:flex;gap:4px;align-items:center"><span class="v" id="fiSpontRateVal"></span><button id="fiSpontRateReset" title="グローバル値に戻す" style="padding:1px 6px;font-size:10px">↺</button></span></label>
+        <input type="range" id="fiSpontRate" min="0" max="0.6" step="0.01" value="0.2">
+      </div>
+      <div class="hint">↺ でグローバル値に戻す。<span class="overridden">青太字</span>は個別設定済み。</div>
     </div>
 
     <div class="sep"></div>
@@ -117,7 +136,7 @@
     <div class="row"><label>再生音量 <span class="v" id="callvolVal"></span></label>
       <input type="range" id="callvol" min="0" max="1" step="0.05" value="0.9"></div>
 
-    <div id="inspector">
+    <div id="inspector" style="display:none">
       <h2>選択中の環境音 / 人</h2>
       <div class="row"><label>音量 level</label>
         <input type="range" id="nzLevel" min="0" max="1.5" step="0.05" value="0.9"></div>

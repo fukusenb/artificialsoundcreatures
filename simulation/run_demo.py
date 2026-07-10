@@ -1,175 +1,119 @@
-"""Demo runner & figure generator for the frog-chorus simulator.
+"""2 層モデル(Felix Hess の内部状態 + 合原の逆相)のデモ & 図の生成.
 
-Usage:
-    python run_demo.py            # run demos, write PNGs to out/
-    python run_demo.py --show     # also show windows (GUI env)
+出力 (out/):
+    two_frogs.png       種火 -> もう 1 体が +T/2 逆相で参加、CALLING 中の位相差
+    ignition.png        1 匹の種火から合唱が点火して広がる(active 割合の時間変化)
+    human_approach.png  人(環境音)が近づくと静まり、去るとバラバラに鳴き戻る
 
-Outputs (out/):
-    two_frogs.png     two oscillators converging to anti-phase (pi)
-    chain_frogs.png   1-D chain (frogs along a paddy edge): nearest-neighbor alternation
-    field_frogs.png   2-D random field: frustrated -> dynamic local clusters
-    coupling_off.png  no coupling baseline for comparison
-
-Labels are kept in English on purpose so the PNGs render without a CJK font.
+ラベルは CJK フォント無しでも描画できるよう英語にしている。
 """
 
 from __future__ import annotations
 
-import argparse
 import os
 
 import matplotlib
 import numpy as np
 
-from frog_chorus import (
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+
+from frog_chorus import (  # noqa: E402
     Config,
+    active_fraction_series,
     nearest_neighbor_phase_diffs,
-    phase_difference_series,
     simulate,
 )
 
 OUT = os.path.join(os.path.dirname(__file__), "out")
+os.makedirs(OUT, exist_ok=True)
 
 
-def _raster(ax, res, title, tail=None):
+def raster(ax, res, title, tail=None):
     if res.call_times:
         ts, ids = zip(*res.call_times)
         ax.scatter(ts, ids, s=10, marker="|", linewidths=1.3)
-    ax.set_xlabel("time [s]")
-    ax.set_ylabel("frog id")
-    ax.set_title(title)
+    ax.set_xlabel("time [s]"); ax.set_ylabel("frog id"); ax.set_title(title)
     ax.set_ylim(-0.5, res.config.n - 0.5)
     if tail:
         ax.set_xlim(res.config.duration - tail, res.config.duration)
 
 
-def demo_two_frogs(show):
-    import matplotlib.pyplot as plt
-
-    cfg = Config(n=2, duration=120.0, coupling=0.15, prc_sign=+1.0,
-                 period_spread=0.0, loudness_gate=0.05, seed=1)
+def demo_two_frogs():
+    cfg = Config(n=2, duration=60.0, period_mean=1.0, period_spread=0.0,
+                 baseline=0.3, threshold=1.0, seed=2,
+                 positions=np.array([[0.0, 0.0], [0.8, 0.0]]))
     res = simulate(cfg)
 
-    diff = phase_difference_series(res, 0, 1)
-    diff_folded = np.minimum(diff, 1.0 - diff)
+    both = res.hist_active[:, 0] & res.hist_active[:, 1]
+    d = (res.hist_phase[:, 0] - res.hist_phase[:, 1]) % 1.0
+    d = np.minimum(d, 1.0 - d)
+    d_plot = np.where(both, d, np.nan)
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(9, 6), height_ratios=[1, 1.4])
-    _raster(ax1, res, "2 frogs: call raster (alternating = anti-phase)")
-
-    ax2.plot(res.hist_t, diff_folded, lw=1.5)
-    ax2.axhline(0.5, color="crimson", ls="--", lw=1, label="anti-phase (pi)")
-    ax2.axhline(0.0, color="gray", ls=":", lw=1, label="in-phase")
-    ax2.set_xlabel("time [s]")
-    ax2.set_ylabel("|phase difference| (0..0.5)")
-    ax2.set_ylim(-0.02, 0.52)
-    ax2.set_title("phase difference converges to 0.5 = anti-phase sync")
-    ax2.legend(loc="lower right")
-
-    fig.tight_layout()
-    _save(fig, "two_frogs.png", show)
-    final = float(np.mean(diff_folded[-len(diff_folded) // 5:]))
-    print(f"[two_frogs] mean phase diff (tail) = {final:.3f}  (1/2 = anti-phase)")
-
-
-def demo_chain(show):
-    import matplotlib.pyplot as plt
-
-    # Frogs aggregate along the edge of a paddy field (Aihara's field observation).
-    # 1-D chain -> nearest-neighbor coupling is (near-)bipartite -> clear alternation.
-    n = 10
-    pos = np.column_stack([np.arange(n) * 1.0, np.zeros(n)])
-    cfg = Config(n=n, duration=160.0, coupling=0.20, prc_sign=+1.0,
-                 period_mean=2.0, period_spread=0.04,
-                 ref_distance=1.0, loudness_gate=0.3,   # gate ~ only immediate neighbors
-                 coupling_mode="all", refractory=0.35,
-                 detection_latency=0.1, positions=pos, seed=5)
-    res = simulate(cfg)
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
-    _raster(ax1, res, "10 frogs in a line: raster (last 40 s)", tail=40)
-
-    nn = nearest_neighbor_phase_diffs(res, tail_fraction=0.5)
-    ax2.hist(nn, bins=25, range=(0, 0.5), color="teal", alpha=0.85)
-    ax2.axvline(0.5, color="crimson", ls="--", lw=1, label="anti-phase (pi)")
-    ax2.axvline(0.25, color="gray", ls=":", lw=1, label="random baseline")
-    ax2.set_xlabel("|phase difference| of nearest-neighbor pairs")
-    ax2.set_ylabel("count")
-    ax2.set_title("nearest-neighbor phase diff (peak near 0.5 = alternation)")
-    ax2.legend()
-
-    fig.tight_layout()
-    _save(fig, "chain_frogs.png", show)
-    print(f"[chain] nearest-neighbor phase-diff median = {np.median(nn):.3f}")
-
-
-def demo_field(show):
-    import matplotlib.pyplot as plt
-
-    rng = np.random.default_rng(3)
-    pos = rng.uniform(0, 4, size=(14, 2))
-    cfg = Config(n=14, duration=160.0, coupling=0.20, prc_sign=+1.0,
-                 period_mean=2.0, period_spread=0.06,
-                 ref_distance=1.0, loudness_gate=0.3,
-                 coupling_mode="all", refractory=0.35,
-                 detection_latency=0.1, positions=pos, seed=3)
-    res = simulate(cfg)
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
-    _raster(ax1, res, "14 frogs in 2-D field: raster (last 40 s)", tail=40)
-
-    nn = nearest_neighbor_phase_diffs(res, tail_fraction=0.5)
-    ax2.hist(nn, bins=25, range=(0, 0.5), color="indigo", alpha=0.8)
-    ax2.axvline(0.5, color="crimson", ls="--", lw=1, label="anti-phase (pi)")
-    ax2.axvline(0.25, color="gray", ls=":", lw=1, label="random baseline")
-    ax2.set_xlabel("|phase difference| of nearest-neighbor pairs")
-    ax2.set_ylabel("count")
-    ax2.set_title("frustrated field: biased to 0.5 but not perfect")
-    ax2.legend()
-
-    fig.tight_layout()
-    _save(fig, "field_frogs.png", show)
-    print(f"[field] nearest-neighbor phase-diff median = {np.median(nn):.3f}")
-
-
-def demo_coupling_off(show):
-    import matplotlib.pyplot as plt
-
-    n = 10
-    pos = np.column_stack([np.arange(n) * 1.0, np.zeros(n)])
-    cfg = Config(n=n, duration=160.0, coupling=0.0,
-                 period_mean=2.0, period_spread=0.04, positions=pos, seed=5)
-    res = simulate(cfg)
-
-    fig, ax = plt.subplots(figsize=(9, 5))
-    _raster(ax, res, "coupling OFF: each frog calls on its own (baseline)", tail=40)
-    fig.tight_layout()
-    _save(fig, "coupling_off.png", show)
-
-
-def _save(fig, name, show):
-    os.makedirs(OUT, exist_ok=True)
-    path = os.path.join(OUT, name)
-    fig.savefig(path, dpi=110)
-    print(f"saved: {path}")
-    import matplotlib.pyplot as plt
-
-    if show:
-        plt.show()
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(9, 6), height_ratios=[1, 1.3])
+    raster(a1, res, "2 frogs: seed ignites, other joins in anti-phase")
+    a2.plot(res.hist_t, d_plot, lw=1.4)
+    a2.axhline(0.5, color="crimson", ls="--", lw=1, label="anti-phase (pi)")
+    a2.set_ylim(-0.02, 0.52); a2.set_xlabel("time [s]")
+    a2.set_ylabel("|phase diff| while both calling")
+    a2.set_title("one-shot +T/2 set at onset, then free-run (drifts slightly)")
+    a2.legend(loc="lower right")
+    fig.tight_layout(); fig.savefig(os.path.join(OUT, "two_frogs.png"), dpi=110)
     plt.close(fig)
+    print("[two_frogs] saved")
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--show", action="store_true")
-    args = ap.parse_args()
-    if not args.show:
-        matplotlib.use("Agg")
+def demo_ignition():
+    rng = np.random.default_rng(7)
+    pos = rng.uniform(0, 4, size=(10, 2))
+    cfg = Config(n=10, duration=90.0, period_mean=1.0, period_spread=0.05,
+                 baseline=0.15, threshold=1.0, thr_spread=0.2,
+                 ref_distance=1.2, loudness_gate=0.2, positions=pos, seed=7)
+    res = simulate(cfg)
 
-    demo_two_frogs(args.show)
-    demo_chain(args.show)
-    demo_field(args.show)
-    demo_coupling_off(args.show)
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(10, 6), height_ratios=[1.3, 1])
+    raster(a1, res, "10 frogs: chorus ignites from a spontaneous seed")
+    a2.plot(res.hist_t, active_fraction_series(res), lw=1.6, color="teal")
+    a2.set_ylim(-0.02, 1.02); a2.set_xlabel("time [s]")
+    a2.set_ylabel("fraction calling"); a2.set_title("chorus builds up over time")
+    fig.tight_layout(); fig.savefig(os.path.join(OUT, "ignition.png"), dpi=110)
+    plt.close(fig)
+    print("[ignition] saved")
+
+
+def demo_human_approach():
+    rng = np.random.default_rng(4)
+    pos = rng.uniform(0, 4, size=(12, 2))
+
+    # 人: 40-70 秒の間だけ中央に居て大きな非カエル音を出す
+    def human_level(t):
+        return 1.2 if 40.0 <= t <= 70.0 else 0.0
+
+    cfg = Config(n=12, duration=120.0, period_mean=1.0, period_spread=0.05,
+                 baseline=0.2, threshold=1.0, thr_spread=0.2,
+                 ref_distance=1.2, loudness_gate=0.2,
+                 inh_gain=2.5, inh_tau=3.0, positions=pos,
+                 noises=[{"x": 2.0, "y": 2.0, "level": human_level, "radius": 2.5}],
+                 seed=4)
+    res = simulate(cfg)
+
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(10, 6), height_ratios=[1.3, 1])
+    raster(a1, res, "human approaches (40-70 s): chorus falls silent, then rebuilds")
+    a1.axvspan(40, 70, color="crimson", alpha=0.08)
+    a2.plot(res.hist_t, active_fraction_series(res), lw=1.6, color="teal")
+    a2.axvspan(40, 70, color="crimson", alpha=0.12, label="human present")
+    a2.set_ylim(-0.02, 1.02); a2.set_xlabel("time [s]")
+    a2.set_ylabel("fraction calling"); a2.set_title("quiet when human near, staggered recovery")
+    a2.legend(loc="upper right")
+    fig.tight_layout(); fig.savefig(os.path.join(OUT, "human_approach.png"), dpi=110)
+    plt.close(fig)
+    nn = nearest_neighbor_phase_diffs(res, 0.3)
+    print(f"[human_approach] saved; nearest-neighbor phase-diff median = "
+          f"{np.median(nn) if nn.size else float('nan'):.3f}")
 
 
 if __name__ == "__main__":
-    main()
+    demo_two_frogs()
+    demo_ignition()
+    demo_human_approach()
+    print("done")

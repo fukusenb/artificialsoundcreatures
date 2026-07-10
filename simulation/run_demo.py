@@ -41,7 +41,7 @@ def raster(ax, res, title, tail=None):
 
 def demo_two_frogs():
     cfg = Config(n=2, duration=60.0, period_mean=1.0, period_spread=0.0,
-                 baseline=0.3, threshold=1.0, seed=2,
+                 rise_rate=0.35, rise_spread=0.0, seed=2,
                  positions=np.array([[0.0, 0.0], [0.8, 0.0]]))
     res = simulate(cfg)
 
@@ -67,7 +67,7 @@ def demo_ignition():
     rng = np.random.default_rng(7)
     pos = rng.uniform(0, 4, size=(10, 2))
     cfg = Config(n=10, duration=90.0, period_mean=1.0, period_spread=0.05,
-                 baseline=0.15, threshold=1.0, thr_spread=0.2,
+                 rise_rate=0.3, rise_spread=0.25,
                  ref_distance=1.2, loudness_gate=0.2, positions=pos, seed=7)
     res = simulate(cfg)
 
@@ -90,9 +90,9 @@ def demo_human_approach():
         return 1.2 if 40.0 <= t <= 70.0 else 0.0
 
     cfg = Config(n=12, duration=120.0, period_mean=1.0, period_spread=0.05,
-                 baseline=0.2, threshold=1.0, thr_spread=0.2,
-                 ref_distance=1.2, loudness_gate=0.2,
-                 inh_gain=2.5, inh_tau=3.0, positions=pos,
+                 rise_rate=0.3, rise_spread=0.25,
+                 ref_distance=1.2, loudness_gate=0.2, inh_gain=2.0,
+                 positions=pos,
                  noises=[{"x": 2.0, "y": 2.0, "level": human_level, "radius": 2.5}],
                  seed=4)
     res = simulate(cfg)

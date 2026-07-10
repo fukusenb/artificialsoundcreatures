@@ -1,25 +1,20 @@
 """Artificial Sound Creatures - カエル合唱の自己組織化シミュレーター (2 層モデル).
 
-設計は Felix Hess の《Electronic Sound Creatures》と、合原一究のニホンアマガエル
-逆相同期モデルを組み合わせたもの。実機ハードウェア(マイク 1 個で混合音を聞く)の
-制約に合わせて、次の 2 層で構成する。
+設計は Felix Hess《Electronic Sound Creatures》の内部状態モデルと、合原一究の
+ニホンアマガエル逆相同期モデルを組み合わせたもの。実機(マイク 1 個で混合音を
+聞く)の制約に合わせて 2 層で構成する。
 
-遅い層(Felix Hess): 「そもそも鳴くかどうか」の内部状態
-  - 興奮 A: カエルの音を聞くと増加、時間減衰。鳴きが続くと高く維持される。
-  - 抑制 I: カエル以外の音(環境音・人)で増加、時間減衰。
-  - 駆動 D = baseline + A - I。D > 閾値 のとき CALLING、下回ると SILENT。
-  => 人が近づくと静まり、去るとバラバラに鳴き戻る、を生む。
+遅い層(Felix Hess): 「そもそも鳴くかどうか」= 単一の鳴きたさ E ∈ [0, 1] (=0〜100%)
+  - E は自発的にじわじわ上昇し、カエルの声を聞くとジャンプ(興奮)。
+  - 環境音・人がいると下がり(抑制)、鳴いている間は疲れて下がる。
+  - E が 1.0(100%)に達したら CALLING 開始。鳴いている間に E が off_level を
+    下回ったら SILENT に戻る(ヒステリシス)。
+  => 人が近づくと静まり、去るとじわじわ鳴き戻る。1 匹の種火から合唱が点火する。
 
 速い層(合原/逆相): 「鳴くとして、いつ鳴くか」
-  - SILENT の間だけ、他個体の鳴きとそのタイミングを聞く。
-  - SILENT -> CALLING へ移る瞬間に、最も大きく聞こえた鳴きを基準に位相を
-    「逆相(+T/2)」で一度だけセットする。
-  - 鳴き始めたら他個体のタイミングは聞かない(自分の固有周期で自走)。
-    以降は音がカエルか環境音かで内部状態を更新するだけ。
-
-状態遷移(有限状態):
-  SILENT  --(D>thr; 最寄りの鳴きへ +T/2 一発セット or 種火なら固有位相)-->  CALLING
-  CALLING --(D<thr)-->  SILENT
+  - SILENT の間だけ、他個体の鳴きとタイミングを聞く。
+  - SILENT -> CALLING の瞬間に、最も大きく聞いた鳴きへ +T/2(逆相)で位相を一度セット。
+  - 鳴き始めたらタイミングは聞かず自走。以降は音がカエルか環境音かで E を更新するだけ。
 """
 
 from __future__ import annotations
@@ -44,19 +39,15 @@ class Config:
     # --- 音の伝播(近い個体ほど大きく聞こえる) ---
     source_level: float = 1.0
     ref_distance: float = 1.0
-    loudness_gate: float = 0.12     # これ未満は「聞こえない」
+    loudness_gate: float = 0.12
 
-    # --- 遅い層(内部状態: 興奮/抑制) ---
-    baseline: float = 0.15          # 常時のベース駆動
-    threshold: float = 1.0          # D>threshold で CALLING
-    spont_rate: float = 0.20        # 沈黙中に自発発声へ向かって溜まる速度 [1/s]
-    spont_max: float = 1.2          # 自発蓄積の上限
-    fatigue: float = 0.06           # 発声中に自発蓄積が減る速度(自然な小休止) [1/s]
-    exc_gain: float = 0.9           # カエル 1 声で興奮に加わる量
-    exc_tau: float = 2.5            # 興奮の減衰時定数 [s]
-    inh_gain: float = 2.5           # 環境音の単位音量あたり抑制の増加率 [1/s]
-    inh_tau: float = 3.0            # 抑制の減衰時定数 [s]
-    thr_spread: float = 0.15        # 閾値の個体差(相対) -> 点火・復帰がばらつく
+    # --- 遅い層(鳴きたさ E ∈ [0,1] のダイナミクス) ---
+    rise_rate: float = 0.35         # 自発上昇の速さ [1/s] (E は 3s ほどで満タン)
+    rise_spread: float = 0.15       # 自発上昇の個体差(相対) -> 点火・復帰がばらつく
+    exc_gain: float = 0.40          # カエル 1 声を聞いたときの E のジャンプ量
+    inh_gain: float = 1.5           # 環境音の単位音量あたり E を下げる速さ [1/s]
+    fatigue: float = 0.50           # 鳴いている間 E が下がる速さ [1/s]
+    off_level: float = 0.35         # 鳴いている E がこれを下回ると停止 (ON は 1.0)
 
     seed: int = 0
     positions: np.ndarray | None = None
@@ -71,8 +62,8 @@ class Result:
     call_times: list = field(default_factory=list)   # (time, frog_id)
     hist_t: np.ndarray = None
     hist_phase: np.ndarray = None
-    hist_active: np.ndarray = None    # (H, n) bool: CALLING かどうか
-    hist_D: np.ndarray = None         # (H, n) 駆動 D
+    hist_active: np.ndarray = None    # (H, n) bool
+    hist_E: np.ndarray = None         # (H, n) 鳴きたさ E ∈ [0,1]
     distances: np.ndarray = None
 
 
@@ -95,14 +86,12 @@ def simulate(cfg: Config) -> Result:
 
     periods = cfg.period_mean * (1.0 + cfg.period_spread * rng.standard_normal(n))
     periods = np.clip(periods, 0.3 * cfg.period_mean, 3.0 * cfg.period_mean)
-    thresholds = cfg.threshold * (1.0 + cfg.thr_spread * rng.standard_normal(n))
+    rise = cfg.rise_rate * (1.0 + cfg.rise_spread * rng.standard_normal(n))
+    rise = np.clip(rise, 0.05 * cfg.rise_rate, 3.0 * cfg.rise_rate)
 
     phase = rng.random(n)
     active = np.zeros(n, dtype=bool)
-    spont = rng.random(n) * 0.3       # 自発蓄積(沈黙中に溜まり、種火になる)
-    exc = np.zeros(n)                 # 興奮 A(カエル音で増える)
-    inh = np.zeros(n)                 # 抑制 I(環境音で増える)
-    # SILENT 中に聞いた「最も大きい鳴き」の (時刻, 音量)
+    E = rng.random(n) * 0.5           # 鳴きたさ 0..1
     last_heard_time = np.full(n, -1e9)
     last_heard_loud = np.zeros(n)
 
@@ -110,12 +99,12 @@ def simulate(cfg: Config) -> Result:
     hist_every = max(1, int(round(cfg.history_dt / cfg.dt)))
 
     call_times: list[tuple[float, int]] = []
-    hist_t: list[float] = []
+    hist_t: list = []
     hist_phase: list = []
     hist_active: list = []
-    hist_D: list = []
+    hist_E: list = []
 
-    pending: list[tuple[float, int]] = []   # (聞こえる時刻, 発声個体) 検出遅延キュー
+    pending: list[tuple[float, int]] = []
 
     def noise_at(x, y, t):
         s = 0.0
@@ -128,33 +117,26 @@ def simulate(cfg: Config) -> Result:
     for step in range(n_steps):
         t = step * cfg.dt
 
-        # --- 遅い層: 内部状態の更新 ---
-        exc -= exc * (cfg.dt / cfg.exc_tau)
-        inh -= inh * (cfg.dt / cfg.inh_tau)
+        # --- 遅い層: 鳴きたさ E の連続更新 ---
         for i in range(n):
-            inh[i] += cfg.inh_gain * noise_at(pos[i, 0], pos[i, 1], t) * cfg.dt
+            E[i] += rise[i] * cfg.dt                                   # 自発上昇
+            E[i] -= cfg.inh_gain * noise_at(pos[i, 0], pos[i, 1], t) * cfg.dt  # 抑制
             if active[i]:
-                spont[i] = max(0.0, spont[i] - cfg.fatigue * cfg.dt)   # 鳴くと疲れる
-            else:
-                spont[i] = min(cfg.spont_max, spont[i] + cfg.spont_rate * cfg.dt)  # 溜まる
-        D = cfg.baseline + spont + exc - inh
+                E[i] -= cfg.fatigue * cfg.dt                           # 発声疲労
+        np.clip(E, 0.0, 1.0, out=E)
 
-        # --- 状態遷移 ---
+        # --- 状態遷移(ヒステリシス: ON=1.0, OFF=off_level) ---
         for i in range(n):
-            if not active[i] and D[i] > thresholds[i]:
-                # SILENT -> CALLING: 位相を一度だけセット
+            if not active[i] and E[i] >= 1.0:
                 if last_heard_time[i] > -1e8:
-                    # 最寄りの鳴きに対して逆相(+T/2)。遅延補正で 0.5 に寄せる。
                     dt_since = t - last_heard_time[i]
                     comp = (cfg.latency / periods[i]) if cfg.lat_comp else 0.0
-                    # 鳴きを聞いた時点の相手位相を 0 とみなし、そこから半周期後に発声
                     phase[i] = (0.5 + comp - (dt_since / periods[i])) % 1.0
-                # 種火(誰も聞いていない)なら現在位相のまま自走を開始
                 active[i] = True
-            elif active[i] and D[i] < thresholds[i]:
+            elif active[i] and E[i] <= cfg.off_level:
                 active[i] = False
 
-        # --- 速い層: CALLING の個体だけ位相を進めて発声 ---
+        # --- 速い層: CALLING の個体だけ発声 ---
         for i in range(n):
             if not active[i]:
                 continue
@@ -163,7 +145,6 @@ def simulate(cfg: Config) -> Result:
                 phase[i] -= 1.0
                 call_times.append((t, i))
                 pending.append((t + cfg.latency, i))
-                exc[i] += 0.15 * cfg.exc_gain   # 自分の発声でも少し高揚(合唱の持続)
 
         # --- 聞こえた鳴きの処理(検出遅延キュー) ---
         due = [ev for ev in pending if ev[0] <= t + 1e-9]
@@ -175,21 +156,18 @@ def simulate(cfg: Config) -> Result:
                 heard = loud[l, src]
                 if heard < cfg.loudness_gate:
                     continue
-                # どの個体も、聞いたカエル声で興奮(プラス)
-                exc[l] += cfg.exc_gain * (heard / cfg.source_level)
-                # SILENT の個体だけ、鳴き始め用にタイミングを覚える(最大音量を採用)
+                E[l] = min(1.0, E[l] + cfg.exc_gain * (heard / cfg.source_level))  # 興奮
                 if not active[l] and heard >= last_heard_loud[l] * 0.9:
                     last_heard_time[l] = t
                     last_heard_loud[l] = max(heard, last_heard_loud[l] * 0.5)
 
-        # 聞いた記憶は緩やかに忘れる(古いタイミングに固執しない)
         last_heard_loud *= (1.0 - cfg.dt / 1.5)
 
         if step % hist_every == 0:
             hist_t.append(t)
             hist_phase.append(phase.copy())
             hist_active.append(active.copy())
-            hist_D.append(D.copy())
+            hist_E.append(E.copy())
 
     return Result(
         config=cfg,
@@ -198,20 +176,18 @@ def simulate(cfg: Config) -> Result:
         hist_t=np.asarray(hist_t),
         hist_phase=np.asarray(hist_phase),
         hist_active=np.asarray(hist_active),
-        hist_D=np.asarray(hist_D),
+        hist_E=np.asarray(hist_E),
         distances=dist,
     )
 
 
 def active_fraction_series(res: Result) -> np.ndarray:
-    """各時刻で鳴いている個体の割合(合唱の盛り上がり)。"""
     if res.hist_active is None or len(res.hist_active) == 0:
         return np.array([])
     return res.hist_active.mean(axis=1)
 
 
 def nearest_neighbor_phase_diffs(res: Result, tail_fraction: float = 0.5) -> np.ndarray:
-    """後半区間で、両方が CALLING の最近傍ペアの位相差(0..0.5 折り返し)。"""
     n = res.config.n
     if n < 2:
         return np.array([])

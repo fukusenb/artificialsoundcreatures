@@ -55,7 +55,7 @@
     <canvas id="field"></canvas>
     <canvas id="raster"></canvas>
     <div class="hint">
-      色付きの輪 = 鳴いている個体(弧=位相)。灰色の輪 = 沈黙中(弧=鳴きやすさの溜まり具合)。<br>
+      色付きの輪 = 鳴いている個体(弧=位相)。灰色の輪 = 沈黙中(弧=鳴きたさ E、100%で発声開始)。<br>
       個体・環境音を<b>ドラッグ</b>、クリックで選択、<b>Delete</b>で削除。リンク色=逆相度(緑=逆相/赤=同相)。
     </div>
   </div>
@@ -87,21 +87,17 @@
     <div class="row"><label>検出遅延 <span class="v" id="latencyVal"></span></label>
       <input type="range" id="latency" min="0" max="0.4" step="0.01" value="0.1"></div>
 
-    <div class="grp">遅い層(鳴くかどうか: Felix Hess)</div>
-    <div class="row"><label>ベース駆動 baseline <span class="v" id="baselineVal"></span></label>
-      <input type="range" id="baseline" min="0" max="1" step="0.01" value="0.15"></div>
-    <div class="row"><label>発声閾値 threshold <span class="v" id="thresholdVal"></span></label>
-      <input type="range" id="threshold" min="0.3" max="2" step="0.05" value="1.0"></div>
-    <div class="row"><label>自発の溜まり速度 <span class="v" id="spontrateVal"></span></label>
-      <input type="range" id="spontrate" min="0" max="0.6" step="0.01" value="0.20"></div>
-    <div class="row"><label>興奮ゲイン(カエル+) <span class="v" id="excgainVal"></span></label>
-      <input type="range" id="excgain" min="0" max="2" step="0.05" value="0.9"></div>
-    <div class="row"><label>興奮の減衰 τ <span class="v" id="exctauVal"></span></label>
-      <input type="range" id="exctau" min="0.5" max="8" step="0.1" value="2.5"></div>
-    <div class="row"><label>抑制ゲイン(環境音−) <span class="v" id="inhgainVal"></span></label>
-      <input type="range" id="inhgain" min="0" max="6" step="0.1" value="2.5"></div>
-    <div class="row"><label>抑制の減衰 τ <span class="v" id="inhtauVal"></span></label>
-      <input type="range" id="inhtau" min="0.5" max="10" step="0.1" value="3.0"></div>
+    <div class="grp">遅い層(鳴きたさ E = 0〜100%: Felix Hess)</div>
+    <div class="row"><label>自発上昇速度(E/秒) <span class="v" id="riserateVal"></span></label>
+      <input type="range" id="riserate" min="0" max="1" step="0.01" value="0.35"></div>
+    <div class="row"><label>興奮(カエル1声でEが+) <span class="v" id="excgainVal"></span></label>
+      <input type="range" id="excgain" min="0" max="1" step="0.05" value="0.4"></div>
+    <div class="row"><label>抑制(環境音でEが−/秒) <span class="v" id="inhgainVal"></span></label>
+      <input type="range" id="inhgain" min="0" max="5" step="0.1" value="1.5"></div>
+    <div class="row"><label>発声疲労(鳴くとEが−/秒) <span class="v" id="fatigueVal"></span></label>
+      <input type="range" id="fatigue" min="0" max="1.5" step="0.05" value="0.5"></div>
+    <div class="row"><label>停止レベル(Eがこれ未満で黙る) <span class="v" id="offlevelVal"></span></label>
+      <input type="range" id="offlevel" min="0" max="0.9" step="0.05" value="0.35"></div>
 
     <div class="grp">センシング</div>
     <div class="row"><label>近傍音量ゲート <span class="v" id="gateVal"></span></label>

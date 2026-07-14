@@ -32,6 +32,17 @@ Mac 2 台を向かい合わせ、互いの再生音を拾って **逆相（位�
 2. 学習: `pip install tensorflow soundfile && python train_cnn.py --data ./data`
 3. 完了条件: テストセットで実用精度が出る。
 
+### フェーズ 1.5: ローカル推論（モデル単体テスト）
+学習した `.h5` / `.tflite`（Edge Impulse は TFLite エクスポート）を `prototype/` に置き、
+音響 I/O や振動子を挟まずに**推論だけ**を確認する。
+```bash
+pip install tensorflow numpy            # TFLite だけなら tflite-runtime でも可
+python infer.py --model frog_cnn.h5 --wav sample.wav   # 1 ファイル判定
+python infer.py --model frog_cnn.h5 --dir ./data       # フォルダ一括（frog/・non_frog/ があれば精度も）
+python infer.py --model frog_cnn.h5 --mic              # マイクでリアルタイム判定（要 sounddevice）
+```
+`--model` 省略で踏み台の `EnergyClassifier` が動くので、配線確認だけ先にもできる。
+
 ### フェーズ 2: 1 台に統合
 ```bash
 pip install sounddevice numpy
